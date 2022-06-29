@@ -6,3 +6,6 @@ libraryDependencies ++= Seq(
   "com.wavesplatform.leveldb-jna" % "leveldb-jna-core"   % levelDbVersion,
   "com.wavesplatform.leveldb-jna" % "leveldb-jna-native" % levelDbVersion
 )
+
+run / fork := true
+Compile / run / mainClass := Some("com.wavesplatform.TestApp")
