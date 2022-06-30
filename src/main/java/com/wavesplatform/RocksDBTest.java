@@ -1,21 +1,21 @@
 package com.wavesplatform;
 
 import com.google.common.primitives.Longs;
-import com.protonail.leveldb.jna.*;
+import org.rocksdb.*;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class TestApp {
-    static final int THREAD_COUNT = 4;
+public class RocksDBTest {
+    static final int THREAD_COUNT = 8;
 
     static class IteratorTask implements Runnable {
-        private final LevelDB db;
+        private final RocksDB db;
         private final int id;
         private final CountDownLatch latch;
 
-        IteratorTask(LevelDB db, int id, CountDownLatch latch) {
+        IteratorTask(RocksDB db, int id, CountDownLatch latch) {
             this.db = db;
             this.id = id;
             this.latch = latch;
@@ -25,10 +25,11 @@ public class TestApp {
         public void run() {
             System.out.println(id + " Computing sum");
             long sum = 0L;
-            try (LevelDBReadOptions options = new LevelDBReadOptions(); LevelDBKeyValueIterator iter = new LevelDBKeyValueIterator(db, options)) {
-                while (iter.hasNext()) {
-                    KeyValuePair pair = iter.next();
-                    sum += Longs.fromByteArray(pair.getValue());
+            try (RocksIterator iter = db.newIterator()) {
+                iter.seekToFirst();
+                while (iter.isValid()) {
+                    sum += Longs.fromByteArray(iter.value());
+                    iter.next();
                 }
             }
             System.out.println(id + " Sum is " + sum);
@@ -37,20 +38,24 @@ public class TestApp {
     }
 
     public static void main(String[] args) {
-        try (LevelDBOptions options = new LevelDBOptions()) {
-            options.setCreateIfMissing(true);
-            try (LevelDB db = new LevelDB("leveldb", options)) {
-                System.out.println("Populating DB...");
-                try (LevelDBWriteBatch batch = new LevelDBWriteBatch(); LevelDBWriteOptions opts = new LevelDBWriteOptions()) {
-                    for (int i = 1; i < 500_000; i++) {
+        RocksDB.loadLibrary();
+
+        try (final Options options = new Options().setCreateIfMissing(true)) {
+            System.out.println("Populating DB...");
+            try (final RocksDB db = RocksDB.open(options, "rocksdb")) {
+                try (final WriteBatch batch = new WriteBatch(); final WriteOptions opts = new WriteOptions()) {
+                    for (int i = 1; i < 1_000_000; i++) {
                         batch.put(Longs.toByteArray(i), Longs.toByteArray(System.nanoTime()));
                     }
 
-                    db.write(batch, opts);
+                    db.write(opts, batch);
+                }
+                try (final FlushOptions fo = new FlushOptions()) {
+                    fo.setWaitForFlush(true);
+                    db.flush(fo);
                 }
 
                 System.out.println("Finished populating DB");
-
                 CountDownLatch latch = new CountDownLatch(THREAD_COUNT);
                 ExecutorService e = Executors.newFixedThreadPool(THREAD_COUNT);
                 for (int i = 0; i < THREAD_COUNT; i++)
@@ -63,6 +68,8 @@ public class TestApp {
                 }
                 e.shutdown();
             }
+        } catch (RocksDBException e) {
+
         }
     }
 }

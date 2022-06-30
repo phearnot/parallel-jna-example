@@ -1,4 +1,5 @@
 leveldb
+rocksdb
 target
 .bsp
 .idea
